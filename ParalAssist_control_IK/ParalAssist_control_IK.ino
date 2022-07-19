@@ -236,6 +236,23 @@ int gripperX_high = 0; // X coordinate max
 int gripperY_high = 0; // Y coordinate max
 int gripperZ_high = 0; // Z coordinate max
 
+// ****** Hardware constants **********//
+const float a1 = 30; // length between {1} and {2} projected by x1 unit vector
+const float a2 = 30; // length of first link
+const float a3 = 30; // length of second link
+const float a4 = 30; // length of thirdlink + gripper
+const float d2 = 30; // legnth betwen {1} and {2} projected by z1 unit vector
+
+
+const float initial_theta1 = 0; // used at the start of the program and for destiniation of homing funciton
+const float initial_theta2 = 0; // used at the start of the program and for destiniation of homing funciton
+const float initial_theta3 = 0; // used at the start of the program and for destiniation of homing funciton
+
+float thetas[2][3] = { // solutions what wil be updated by IK function. each row vector correspond to one set of solution
+  {initial_theta1, initial_theta2, initial_theta3},
+  {initial_theta1, initial_theta2, initial_theta3}
+};
+
 bool plotter = true;
 
 Servo gripper;
@@ -372,6 +389,46 @@ bool set_pin_frequency(){ // set PWM frequencies in the analog output pins
   else{
     return false;
   }
+}
+
+float rad2deg(float radians){
+  float degrees = (radians * 4068) / 71;
+  return degrees;
+}
+
+float sqr(float x){
+  return (x * x);
+}
+
+void InKin(int Xd_int, int Yd_int, int Zd_int, float (& thetas)[2][3] ){ // calculates set of solution that will locate ghe grippper to Xd, Yd, and Zd coordinate
+  // the solution will be stored at the float vector passed by reference.
+
+  // first make the input as floats
+  float Xd = static_cast< float >(Xd_int);
+  float Yd = static_cast< float >(Yd_int);
+  float Zd = static_cast< float >(Zd_int);
+
+  // proceed calculations
+  float theta1 = rad2deg(atan2(Yd, Xd)); // atan2() returns radian value, we need degrees
+  float r1 = sqrt(Xd*Xd + Yd*Yd); // r1 = sqrt(Xd^2 + Yd^2)
+  float r2_sq = sqr(r1-a1) + sqr(Zd-d2);
+  float cos3 = (r2_sq - (sqr(a3) + sqr(a4)))/(2*a3*a4);
+  float sin3 = sqrt(1 - sqr(cos3));
+  float theta3_1 = rad2deg(atan2(sin3, cos3)); // _1 is part of first solution set
+  float theta3_2 = rad2deg(atan2(-1*sin3, cos3)); // _2 is part of second solution set
+  float alpha = rad2deg(atan2(Zd-d2, r1-a1));
+  float cos_beta = (r2_sq + sqr(a2) - sqr(a3))/(2*sqrt(r2_sq)*a2);   
+  float sin_beta = sqrt(1+sqr(cos_beta));
+  float theta2_1 = alpha + rad2deg(atan2(sin_beta, cos_beta));
+  float theta2_2 = alpha + rad2deg(atan2(-1*sin_beta, cos_beta));
+
+  // manipulate the reference
+  thetas[1][1] = theta1;
+  thetas[1][2] = theta2_1;
+  thetas[1][3] = theta3_1;
+  thetas[2][1] = theta1;
+  thetas[2][2] = theta2_2;
+  thetas[2][3] = theta3_2;  
 }
 
 void setup() {
