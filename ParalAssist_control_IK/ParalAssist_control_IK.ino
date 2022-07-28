@@ -243,6 +243,12 @@ const float a3 = 30; // length of second link
 const float a4 = 30; // length of thirdlink + gripper
 const float d2 = 30; // legnth betwen {1} and {2} projected by z1 unit vector
 
+const float theta1_l = -135/2;
+const float theta1_u = theta1_l + 135/2;
+const float theta2_l = -20;
+const float theta2_u = theta2_l + 135;
+const float theta3_l = -20; 
+const float theta3_u = theta3_l + 135;
 
 const float initial_theta1 = 0; // used at the start of the program and for destiniation of homing funciton
 const float initial_theta2 = 0; // used at the start of the program and for destiniation of homing funciton
@@ -252,6 +258,8 @@ float thetas[2][3] = { // solutions what wil be updated by IK function. each row
   {initial_theta1, initial_theta2, initial_theta3},
   {initial_theta1, initial_theta2, initial_theta3}
 };
+
+bool solution_validity[2] = {true, true};
 
 bool plotter = true;
 
@@ -400,36 +408,138 @@ float sqr(float x){
   return (x * x);
 }
 
-void InKin(int Xd_int, int Yd_int, int Zd_int, float (& thetas)[2][3] ){ // calculates set of solution that will locate ghe grippper to Xd, Yd, and Zd coordinate
+int deg2pwm(float theta, int joint_number){ // converts angle to pwm value used for motor control. use for joint 1,2,3
+  int pwm_value = 0;
+  if (joint_number == 1){
+    pwm_value = map(theta, theta1_l, theta1_u, 0, 255); 
+  }
+  else if (joint_number == 2){
+    pwm_value = map(theta, theta2_l, theta2_u, 0, 255); 
+  }
+  else if (joint_number == 3){
+    pwm_value = map(theta, theta3_l, theta3_u, 0, 255); 
+  }
+  // else if (joint_number == 4){ // do we really need this..?
+  //   pwm_value = theta;
+  // }
+  else{ // we shouldnt go here, maybe call exception?
+    return 0;
+  }
+  return pwm_value;
+}
+
+float pwm2deg(int pwm, int joint_number){
+  float theta_value = 0;
+  if (joint_number == 1){
+    theta_value = map(pwm, 0, 255, theta1_l, theta1_u); 
+  }
+  else if (joint_number == 2){
+    theta_value = map(pwm, 0, 255, theta2_l, theta2_u); 
+  }
+  else if (joint_number == 3){
+    theta_value = map(pwm, 0, 255, theta3_l, theta3_u); 
+  }
+  // else if (joint_number == 4){ // do we really need this..?
+  //   pwm_value = theta;
+  // }
+  else{ // we shouldnt go here, maybe call exception?
+    return 0;
+  }
+  return theta_value;
+}
+
+void InKin(int Xd_int, int Yd_int, int Zd_int, float (& thetas)[2][3], bool (& solution_validity) [2] ){ // calculates set of solution that will locate ghe grippper to Xd, Yd, and Zd coordinate
   // the solution will be stored at the float vector passed by reference.
+  // also it will set flags to "solution_validity". if flag is false, then the solution is unachievable by the ParalAssist
 
   // first make the input as floats
   float Xd = static_cast< float >(Xd_int);
   float Yd = static_cast< float >(Yd_int);
   float Zd = static_cast< float >(Zd_int);
 
-  // proceed calculations
-  float theta1 = rad2deg(atan2(Yd, Xd)); // atan2() returns radian value, we need degrees
-  float r1 = sqrt(Xd*Xd + Yd*Yd); // r1 = sqrt(Xd^2 + Yd^2)
-  float r2_sq = sqr(r1-a1) + sqr(Zd-d2);
-  float cos3 = (r2_sq - (sqr(a3) + sqr(a4)))/(2*a3*a4);
-  float sin3 = sqrt(1 - sqr(cos3));
-  float theta3_1 = rad2deg(atan2(sin3, cos3)); // _1 is part of first solution set
-  float theta3_2 = rad2deg(atan2(-1*sin3, cos3)); // _2 is part of second solution set
-  float alpha = rad2deg(atan2(Zd-d2, r1-a1));
-  float cos_beta = (r2_sq + sqr(a2) - sqr(a3))/(2*sqrt(r2_sq)*a2);   
-  float sin_beta = sqrt(1+sqr(cos_beta));
-  float theta2_1 = alpha + rad2deg(atan2(sin_beta, cos_beta));
-  float theta2_2 = alpha + rad2deg(atan2(-1*sin_beta, cos_beta));
+  // update the solution_validity to default
+  solution_validity[0] = true;
+  solution_validity[1] = true;
 
-  // manipulate the reference
-  thetas[1][1] = theta1;
-  thetas[1][2] = theta2_1;
-  thetas[1][3] = theta3_1;
-  thetas[2][1] = theta1;
-  thetas[2][2] = theta2_2;
-  thetas[2][3] = theta3_2;  
+  // check if there can be valid solution
+  float r1 = sqrt(Xd*Xd + Yd*Yd); // r1 = sqrt(Xd^2 + Yd^2)
+  if (r1 > (a1 + sqrt(sqr(a2)+sqr(a3))) ){ // point cannot be reached 
+    solution_validity[0] = false;
+    solution_validity[1] = false;
+  }
+  else{ // proceed calculations
+    float theta1 = rad2deg(atan2(Yd, Xd)); // atan2() returns radian value, we need degrees
+    if ((theta1 < theta1_l) || (theta1 > theta1_u)){ // outside the joint limit1
+      solution_validity[0] = false;
+      solution_validity[1] = false;
+    }
+    else{
+      float r2_sq = sqr(r1-a1) + sqr(Zd-d2);
+      float cos3 = (r2_sq - (sqr(a3) + sqr(a4)))/(2*a3*a4);
+      float sin3 = sqrt(1 - sqr(cos3));
+      float theta3_1 = rad2deg(atan2(sin3, cos3)); // _1 is part of first solution set
+      float theta3_2 = rad2deg(atan2(-1*sin3, cos3)); // _2 is part of second solution set
+      if ((theta3_1 < theta3_l) || (theta3_1 > theta3_u)){
+        solution_validity[0] = false;
+      }
+      if ((theta3_2 < theta3_l) || (theta3_2 > theta3_u)){
+        solution_validity[1] = false;
+      }
+      float alpha = rad2deg(atan2(Zd-d2, r1-a1));
+      float cos_beta = (r2_sq + sqr(a2) - sqr(a3))/(2*sqrt(r2_sq)*a2);   
+      float sin_beta = sqrt(1+sqr(cos_beta));
+      float theta2_1 = alpha + rad2deg(atan2(sin_beta, cos_beta));
+      float theta2_2 = alpha + rad2deg(atan2(-1*sin_beta, cos_beta));
+      if ((theta2_1 < theta2_l) || (theta2_1 > theta2_u)){
+        solution_validity[0] = false;
+      }
+      if ((theta2_2 < theta2_l) || (theta2_2 > theta2_u)){
+        solution_validity[1] = false;
+      }
+
+      // manipulate the reference
+      thetas[0][0] = theta1;
+      thetas[0][1] = theta2_1;
+      thetas[0][2] = theta3_1;
+      thetas[1][0] = theta1;
+      thetas[1][1] = theta2_2;
+      thetas[1][2] = theta3_2;  
+    }
+  }
 }
+
+int findOptSol(float (& thetas)[2][3], int pwm1, int pwm2, int pwm3, bool * solution_validity ){ // find which solution set from thetas require less movement, hence optimal. returns ideal solution set number
+  if ((solution_validity[0] || solution_validity[1]) == false){ // both flags are false, no possible solution
+    return 0;
+  }
+  else if ((solution_validity[0]==true) && (solution_validity[1]==false)){ // only sol1 is valid
+    return 1;
+  }
+  else if ((solution_validity[0]==false) && (solution_validity[1]==true)){ // only sol2 is valid
+    return 2;
+  }
+  else{ // both solutions are valid, we need to compare to find the optimum solution
+    float angle1 = pwm2deg(pwm1, 1);
+    float angle2 = pwm2deg(pwm2, 2);
+    float angle3 = pwm2deg(pwm3, 3);
+    float dist1 = 0;
+    float dist2 = 0;
+    float w1 = 35; // weight for first motor
+    float w2 = 60; // weight for second motor
+    float w3 = 35; // weight for third motor
+
+    dist1 = sqrt(w1*sqr(angle1-thetas[0][0]) + w2*sqr(angle2-thetas[0][1]) + w3*sqr(angle3-thetas[0][2]));
+    dist2 = sqrt(w1*sqr(angle1-thetas[1][0]) + w2*sqr(angle2-thetas[1][1]) + w3*sqr(angle3-thetas[1][2]));
+    if (dist1 <= dist2){
+      return 1; // sol1 is optimum
+    }
+    else{
+      return 2; // sol2 is optimum
+    }
+  }
+  return 0; // we should not reach this point.
+}
+
 
 void setup() {
   Serial.begin(9600);
